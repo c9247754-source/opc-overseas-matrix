@@ -122,36 +122,44 @@ async function applyDiagonalWatermark(
   brand: string,
   canvas: number
 ): Promise<Buffer> {
-  const fontSize = Math.max(18, Math.round(canvas / 28));
-  const line = escapeXml(`Made with ${brand}`);
-  // Extra-large canvas so rotated tiles cover every corner after crop attempts
-  const tile = Math.round(canvas * 1.6);
-  const stepY = Math.round(fontSize * 3.2);
-
-  const lines: string[] = [];
-  for (let y = fontSize; y < tile; y += stepY) {
-    const offset = ((y / stepY) % 2) * Math.round(fontSize * 4);
-    lines.push(`
-      <text x="${offset}" y="${y}" fill="rgba(40,40,40,0.22)"
-        font-size="${fontSize}" font-family="Arial, Helvetica, sans-serif"
-        font-weight="600" letter-spacing="1">${line}    ${line}    ${line}    ${line}</text>
-    `);
+  // Use a pre-rendered PNG tile (Vercel Linux has no Arial → SVG text would be blank).
+  const path = await import("path");
+  const fs = await import("fs/promises");
+  const tilePath = path.join(process.cwd(), "public", "wm-tile.png");
+  let tile: Buffer;
+  try {
+    tile = await fs.readFile(tilePath);
+  } catch {
+    // Fallback SVG if tile missing (local/dev)
+    const fontSize = Math.max(22, Math.round(canvas / 26));
+    const line = escapeXml(`Made with ${brand || "SnapShelf"}`);
+    tile = await sharp(
+      Buffer.from(`
+      <svg width="480" height="260" xmlns="http://www.w3.org/2000/svg">
+        <text x="50%" y="50%" fill="rgba(0,0,0,0.32)" stroke="rgba(255,255,255,0.4)"
+          stroke-width="1.5" font-size="${fontSize}" font-family="Arial, sans-serif"
+          font-weight="700" text-anchor="middle" dominant-baseline="middle"
+          transform="rotate(-28 240 130)">${line}</text>
+      </svg>`)
+    )
+      .png()
+      .toBuffer();
   }
 
-  const svg = Buffer.from(`
-    <svg width="${canvas}" height="${canvas}" xmlns="http://www.w3.org/2000/svg">
-      <g transform="rotate(-28 ${canvas / 2} ${canvas / 2})">
-        <g transform="translate(${-canvas * 0.25}, ${-canvas * 0.15})">
-          ${lines.join("")}
-        </g>
-      </g>
-    </svg>
-  `);
+  const meta = await sharp(tile).metadata();
+  const tw = meta.width || 480;
+  const th = meta.height || 260;
+  const overlays: { input: Buffer; left: number; top: number }[] = [];
+
+  for (let y = -th; y < canvas + th; y += Math.round(th * 0.72)) {
+    for (let x = -tw; x < canvas + tw; x += Math.round(tw * 0.85)) {
+      overlays.push({ input: tile, left: x, top: y });
+    }
+  }
 
   return Buffer.from(
     await sharp(input)
-      .ensureAlpha()
-      .composite([{ input: svg, left: 0, top: 0 }])
+      .composite(overlays)
       .flatten({ background: { r: 255, g: 255, b: 255 } })
       .removeAlpha()
       .png()
