@@ -129,11 +129,11 @@ async function applyDiagonalWatermark(
   const th = meta.height || 280;
   const overlays: { input: Buffer; left: number; top: number }[] = [];
 
-  for (let y = -Math.round(th * 0.3); y < canvas + th; y += Math.round(th * 0.55)) {
+  for (let y = -Math.round(th * 0.2); y < canvas + th; y += Math.round(th * 0.48)) {
     for (
-      let x = -Math.round(tw * 0.3);
+      let x = -Math.round(tw * 0.2);
       x < canvas + tw;
-      x += Math.round(tw * 0.7)
+      x += Math.round(tw * 0.58)
     ) {
       overlays.push({ input: tile, left: x, top: y });
     }
@@ -169,7 +169,8 @@ const GLYPHS: Record<string, number[]> = {
 };
 
 async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
-  const scale = 4;
+  // Larger + darker so it stays visible on white / product photos
+  const scale = 6;
   const chars = text.toUpperCase().split("");
   const gw = 4;
   const width = chars.length * gw * scale;
@@ -186,10 +187,10 @@ async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
               const px = (i * gw + x) * scale + dx;
               const py = y * scale + dy;
               const idx = (py * width + px) * 4;
-              rgba[idx] = 25;
-              rgba[idx + 1] = 25;
-              rgba[idx + 2] = 25;
-              rgba[idx + 3] = 130;
+              rgba[idx] = 15;
+              rgba[idx + 1] = 15;
+              rgba[idx + 2] = 15;
+              rgba[idx + 3] = 165;
             }
           }
         }
@@ -203,8 +204,8 @@ async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
     .png()
     .toBuffer();
 
-  const tw = width + 80;
-  const th = height + 120;
+  const tw = width + 100;
+  const th = height + 140;
   const base = await sharp({
     create: {
       width: tw,
@@ -223,7 +224,7 @@ async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
     .png()
     .toBuffer();
 
-  const pad = 60;
+  const pad = 80;
   const padded = await sharp(base)
     .extend({
       top: pad,
@@ -241,12 +242,4 @@ async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
       .png()
       .toBuffer()
   );
-}
-
-function escapeXml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
