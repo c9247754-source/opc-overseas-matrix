@@ -3,7 +3,7 @@ import {
   compositeOnWhiteAndWatermark,
   type ExportSize,
 } from "@/lib/image";
-import { verifyUnlockToken } from "@/lib/unlock";
+import { consumeCreditToken, verifyUnlockToken } from "@/lib/unlock";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -45,14 +45,32 @@ export async function POST(req: NextRequest) {
 
     const dataUrl = `data:image/png;base64,${png.toString("base64")}`;
 
+    let nextUnlockToken: string | undefined;
+    let creditsLeft: number | undefined;
+    let message: string;
+
+    if (watermark) {
+      message = `${size}×${size} store-ready (watermarked). Pay with Creem to remove watermark.`;
+    } else if (unlocked?.plan === "pro") {
+      message = `${size}×${size} clean export (Pro — until ${new Date(unlocked.exp).toLocaleDateString()}).`;
+    } else {
+      nextUnlockToken = consumeCreditToken(unlockToken, secret) || undefined;
+      const after = nextUnlockToken
+        ? verifyUnlockToken(nextUnlockToken, secret)
+        : null;
+      creditsLeft = after?.creditsLeft ?? 0;
+      message = `${size}×${size} clean export. Credits left: ${creditsLeft}.`;
+    }
+
     return NextResponse.json({
       previewUrl: dataUrl,
       watermarked: watermark,
       size,
       shadow,
-      message: watermark
-        ? `${size}×${size} store-ready (watermarked). Pay with Creem to remove watermark.`
-        : `${size}×${size} clean export unlocked.`,
+      plan: unlocked?.plan,
+      creditsLeft,
+      unlockToken: nextUnlockToken,
+      message,
     });
   } catch (e) {
     console.error(e);
