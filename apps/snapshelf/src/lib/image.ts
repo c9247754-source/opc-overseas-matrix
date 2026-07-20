@@ -129,11 +129,11 @@ async function applyDiagonalWatermark(
   const th = meta.height || 280;
   const overlays: { input: Buffer; left: number; top: number }[] = [];
 
-  for (let y = -Math.round(th * 0.2); y < canvas + th; y += Math.round(th * 0.48)) {
+  for (let y = -Math.round(th * 0.25); y < canvas + th; y += Math.round(th * 0.62)) {
     for (
-      let x = -Math.round(tw * 0.2);
+      let x = -Math.round(tw * 0.25);
       x < canvas + tw;
-      x += Math.round(tw * 0.58)
+      x += Math.round(tw * 0.72)
     ) {
       overlays.push({ input: tile, left: x, top: y });
     }
@@ -169,8 +169,8 @@ const GLYPHS: Record<string, number[]> = {
 };
 
 async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
-  // Larger + darker so it stays visible on white / product photos
-  const scale = 6;
+  // Light but still readable; crop-resistant tiling is denser than opacity alone
+  const scale = 4;
   const chars = text.toUpperCase().split("");
   const gw = 4;
   const width = chars.length * gw * scale;
@@ -187,10 +187,10 @@ async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
               const px = (i * gw + x) * scale + dx;
               const py = y * scale + dy;
               const idx = (py * width + px) * 4;
-              rgba[idx] = 15;
-              rgba[idx + 1] = 15;
-              rgba[idx + 2] = 15;
-              rgba[idx + 3] = 165;
+              rgba[idx] = 40;
+              rgba[idx + 1] = 40;
+              rgba[idx + 2] = 40;
+              rgba[idx + 3] = 72;
             }
           }
         }

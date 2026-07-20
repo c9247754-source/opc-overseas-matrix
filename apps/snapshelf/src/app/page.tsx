@@ -205,6 +205,7 @@ export default function Home() {
                 {creditsId ? (
                   <CreemCheckout
                     productId={creditsId}
+                    checkoutPath="/api/checkout"
                     successUrl="/success"
                     metadata={{ app: "snapshelf", plan: "credits" }}
                   >
@@ -224,6 +225,7 @@ export default function Home() {
                 {proId && (
                   <CreemCheckout
                     productId={proId}
+                    checkoutPath="/api/checkout"
                     successUrl="/success"
                     metadata={{ app: "snapshelf", plan: "pro" }}
                   >
