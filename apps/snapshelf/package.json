@@ -10,11 +10,12 @@
   },
   "dependencies": {
     "@creem_io/nextjs": "^0.5.2",
+    "@imgly/background-removal": "^1.7.0",
     "@types/uuid": "^10.0.0",
     "next": "14.2.35",
+    "onnxruntime-web": "^1.21.0",
     "react": "^18",
     "react-dom": "^18",
-    "replicate": "^1.4.0",
     "sharp": "^0.35.3",
     "uuid": "^14.0.1"
   },

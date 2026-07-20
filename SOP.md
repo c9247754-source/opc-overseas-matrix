@@ -47,8 +47,9 @@ FacePass / PageBrief 各再建一对 Credits+Pro（共 6 个商品）。
   - `facepass.yourdomain.com`  
   - `pagebrief.yourdomain.com`  
   或三个独立 `.com`（更贵，品牌更好）  
-- [ ] **Replicate** 账号 → API Token（图像去背/头像）  
-  或 **fal.ai**（二选一，SOP 默认 Replicate）  
+- [ ] **SnapShelf 去背**：浏览器本地免费（`@imgly/background-removal`），**不需要 Replicate**  
+- [ ] **FacePass** 仍可能需要 Replicate / fal.ai（头像生成）  
+
 - [ ] **OpenAI / Anthropic / DeepSeek** 任一（PageBrief 用）  
 - [ ] **邮箱** 用于 Creem / 域名 / 客服（建议 Google Workspace 或纯 Gmail）
 
@@ -105,7 +106,7 @@ npm install
 
 ### 2.2 编辑 `.env.local`
 
-按阶段 1 填入 Creem + Replicate：
+按阶段 1 填入 Creem（SnapShelf **不用** Replicate）：
 
 ```
 CREEM_API_KEY=
@@ -113,7 +114,6 @@ CREEM_WEBHOOK_SECRET=
 CREEM_PRODUCT_CREDITS=
 CREEM_PRODUCT_PRO=
 CREEM_TEST_MODE=true
-REPLICATE_API_TOKEN=
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_BRAND=SnapShelf
 ```
@@ -128,15 +128,14 @@ npm run dev
 
 ### 2.4 验收清单（本地）
 
-1. 未配置 Replicate 时：上传图仍能出「演示结果」（原图+提示）  
-2. 配置 Replicate 后：上传商品图 → 白底/去背结果 + **水印文字**  
-3. 点 **Buy credits / Pro** → 跳转 Creem Checkout（Test 模式）  
-4. 付完跳转 `/success?…` → 页面显示成功  
-5. Webhook 配置后：终端/日志能看到 `checkout.completed`（授予「去水印」标记 — MVP 用 cookie/localStorage + 服务端 token）
+1. 上传商品图 → 浏览器本地去背 → 白底 + **水印文字**（首次会下载免费模型，稍等）  
+2. 点 **Buy credits / Pro** → 跳转 Creem Checkout（Test 模式）  
+3. 付完跳转 `/success?…` → 页面显示成功  
+4. Webhook 配置后：终端/日志能看到 `checkout.completed`（授予「去水印」标记 — MVP 用 cookie/localStorage + 服务端 token）
 
-### 2.5 去背模型说明
+### 2.5 去背说明
 
-代码默认调用 Replicate 上常见 **背景移除** 模型；若模型 ID 变更，只改 `src/lib/image.ts` 里的 `REMOVE_BG_MODEL`。
+SnapShelf 使用 `@imgly/background-removal`（浏览器 ONNX），**零 API 费用**。首次运行需能访问模型 CDN；国内网络慢时可开代理。
 
 ---
 
@@ -247,7 +246,7 @@ SOP：
 | 坑 | 处理 |
 |----|------|
 | Creem 跳转失败 | 检查 `CREEM_API_KEY`、`product_id`、test/live 是否混用 |
-| 去背一直失败 | Replicate 余额/模型 ID；先看 API 日志 |
+| 去背一直失败 | 看浏览器控制台；首次模型下载是否被墙/超时 |
 | Webhook 不触发 | URL 必须公网 HTTPS；Secret 一致 |
 | 本机付款成功但无权限 | success 页要写入 unlock token；webhook 异步授予更稳 |
 | 国内打不开测试 | 海外产品用海外网络测 Creem/Replicate |
