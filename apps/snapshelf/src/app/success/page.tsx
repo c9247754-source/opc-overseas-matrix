@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 function SuccessInner() {
   const params = useSearchParams();
