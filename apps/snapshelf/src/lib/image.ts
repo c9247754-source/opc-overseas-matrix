@@ -119,40 +119,22 @@ export async function compositeOnWhiteAndWatermark(
 
 async function applyDiagonalWatermark(
   input: Buffer,
-  brand: string,
+  _brand: string,
   canvas: number
 ): Promise<Buffer> {
-  // Use a pre-rendered PNG tile (Vercel Linux has no Arial → SVG text would be blank).
-  const path = await import("path");
-  const fs = await import("fs/promises");
-  const tilePath = path.join(process.cwd(), "public", "wm-tile.png");
-  let tile: Buffer;
-  try {
-    tile = await fs.readFile(tilePath);
-  } catch {
-    // Fallback SVG if tile missing (local/dev)
-    const fontSize = Math.max(22, Math.round(canvas / 26));
-    const line = escapeXml(`Made with ${brand || "SnapShelf"}`);
-    tile = await sharp(
-      Buffer.from(`
-      <svg width="480" height="260" xmlns="http://www.w3.org/2000/svg">
-        <text x="50%" y="50%" fill="rgba(0,0,0,0.32)" stroke="rgba(255,255,255,0.4)"
-          stroke-width="1.5" font-size="${fontSize}" font-family="Arial, sans-serif"
-          font-weight="700" text-anchor="middle" dominant-baseline="middle"
-          transform="rotate(-28 240 130)">${line}</text>
-      </svg>`)
-    )
-      .png()
-      .toBuffer();
-  }
-
+  // Build tile in-memory (bitmap font). Do NOT read public/ — missing on Vercel lambdas.
+  const tile = await makeBitmapWatermarkTile("MADE WITH SNAPSHELF");
   const meta = await sharp(tile).metadata();
-  const tw = meta.width || 480;
-  const th = meta.height || 260;
+  const tw = meta.width || 500;
+  const th = meta.height || 280;
   const overlays: { input: Buffer; left: number; top: number }[] = [];
 
-  for (let y = -th; y < canvas + th; y += Math.round(th * 0.72)) {
-    for (let x = -tw; x < canvas + tw; x += Math.round(tw * 0.85)) {
+  for (let y = -Math.round(th * 0.3); y < canvas + th; y += Math.round(th * 0.55)) {
+    for (
+      let x = -Math.round(tw * 0.3);
+      x < canvas + tw;
+      x += Math.round(tw * 0.7)
+    ) {
       overlays.push({ input: tile, left: x, top: y });
     }
   }
@@ -162,6 +144,100 @@ async function applyDiagonalWatermark(
       .composite(overlays)
       .flatten({ background: { r: 255, g: 255, b: 255 } })
       .removeAlpha()
+      .png()
+      .toBuffer()
+  );
+}
+
+/** 5x7 pixel font — no system fonts, works on Vercel Linux. */
+const GLYPHS: Record<string, number[]> = {
+  " ": [0, 0, 0, 0, 0, 0, 0],
+  A: [0b010, 0b101, 0b101, 0b111, 0b101, 0b101, 0b101],
+  D: [0b110, 0b101, 0b101, 0b101, 0b101, 0b101, 0b110],
+  E: [0b111, 0b100, 0b100, 0b111, 0b100, 0b100, 0b111],
+  F: [0b111, 0b100, 0b100, 0b111, 0b100, 0b100, 0b100],
+  H: [0b101, 0b101, 0b101, 0b111, 0b101, 0b101, 0b101],
+  I: [0b111, 0b010, 0b010, 0b010, 0b010, 0b010, 0b111],
+  L: [0b100, 0b100, 0b100, 0b100, 0b100, 0b100, 0b111],
+  M: [0b101, 0b111, 0b111, 0b101, 0b101, 0b101, 0b101],
+  N: [0b101, 0b111, 0b111, 0b111, 0b101, 0b101, 0b101],
+  O: [0b010, 0b101, 0b101, 0b101, 0b101, 0b101, 0b010],
+  P: [0b111, 0b101, 0b101, 0b111, 0b100, 0b100, 0b100],
+  S: [0b011, 0b100, 0b100, 0b010, 0b001, 0b001, 0b110],
+  T: [0b111, 0b010, 0b010, 0b010, 0b010, 0b010, 0b010],
+  W: [0b101, 0b101, 0b101, 0b101, 0b111, 0b111, 0b101],
+};
+
+async function makeBitmapWatermarkTile(text: string): Promise<Buffer> {
+  const scale = 4;
+  const chars = text.toUpperCase().split("");
+  const gw = 4;
+  const width = chars.length * gw * scale;
+  const height = 7 * scale;
+  const rgba = Buffer.alloc(width * height * 4, 0);
+
+  chars.forEach((ch, i) => {
+    const rows = GLYPHS[ch] || GLYPHS[" "];
+    for (let y = 0; y < 7; y++) {
+      for (let x = 0; x < 3; x++) {
+        if ((rows[y] >> (2 - x)) & 1) {
+          for (let dy = 0; dy < scale; dy++) {
+            for (let dx = 0; dx < scale; dx++) {
+              const px = (i * gw + x) * scale + dx;
+              const py = y * scale + dy;
+              const idx = (py * width + px) * 4;
+              rgba[idx] = 25;
+              rgba[idx + 1] = 25;
+              rgba[idx + 2] = 25;
+              rgba[idx + 3] = 130;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const label = await sharp(rgba, {
+    raw: { width, height, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+
+  const tw = width + 80;
+  const th = height + 120;
+  const base = await sharp({
+    create: {
+      width: tw,
+      height: th,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([
+      {
+        input: label,
+        left: Math.round((tw - width) / 2),
+        top: Math.round((th - height) / 2),
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  const pad = 60;
+  const padded = await sharp(base)
+    .extend({
+      top: pad,
+      bottom: pad,
+      left: pad,
+      right: pad,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+
+  return Buffer.from(
+    await sharp(padded)
+      .rotate(-28, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toBuffer()
   );
