@@ -1,7 +1,7 @@
 # 完整手把手 SOP（Creem 收款版）
 
 > **你已有 Creem** — 全程用 Creem，不要配 Stripe。  
-> 目标：海外上线 **SnapShelf → FacePass → PageBrief**  
+> 目标：海外 Freemium 矩阵。**主押可上线**：**StageListing**（房产布景）+ **OgMaker**（OG 图）；SnapShelf 验证中；其余暂缓  
 > 原则：刘小排逻辑 — 免登录试用、水印、第一天能收费、14 天无付费就杀
 
 ---

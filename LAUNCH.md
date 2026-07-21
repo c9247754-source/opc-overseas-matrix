@@ -4,8 +4,10 @@
 
 | # | 产品代号 | 域名意向 | 一句话 | 优先级 |
 |---|----------|----------|--------|--------|
-| 1 | **SnapShelf** | snapshelf.app / .com | 电商主图：去背/白底/精修，免登录出图 | P0 先上 |
-| 2 | **FacePass** | facepass.app / .com | AI 职业头像：自拍 → 多风格证件/LinkedIn 照 | P0 并行骨架 |
+| 1 | **SnapShelf** | sanpshelf.vercel.app | 电商主图去背（验证中；弱差异） | 已上线 |
+| 2 | **StageListing** | Root=`apps/stagelisting` | 房产空房 Virtual Staging | **主押可上线** |
+| 3 | **OgMaker** | Root=`apps/ogmaker` | OG/社媒封面 1200×630 | **主押可上线** |
+| — | ListCheck / FacePass | — | 旁支 / 暂缓 | — |
 | 3 | **PageBrief** | pagebrief.app / .com | PDF/长文 → 带引用的一页结构摘要 | P1 第二波 |
 
 共同商业骨架（不可改）：
