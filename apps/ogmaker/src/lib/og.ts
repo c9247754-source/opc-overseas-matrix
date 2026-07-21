@@ -1,4 +1,7 @@
+import { readFileSync } from "fs";
+import { join } from "path";
 import sharp from "sharp";
+import { applyDiagonalBitmapWatermark } from "@/lib/bitmap-wm";
 
 export type OgTemplate = "blog" | "product" | "launch" | "quote";
 
@@ -22,6 +25,36 @@ export const OG_TEMPLATES: { id: OgTemplate; label: string; hint: string }[] =
     { id: "quote", label: "Quote / Thread", hint: "Large pull-quote" },
   ];
 
+let cachedFontCss: string | null = null;
+
+/** Embed Geist so SVG text works on Vercel Linux (no system Arial). */
+function fontFaceCss(): string {
+  if (cachedFontCss) return cachedFontCss;
+  const candidates = [
+    join(process.cwd(), "src/app/fonts/GeistVF.woff"),
+    join(process.cwd(), "apps/ogmaker/src/app/fonts/GeistVF.woff"),
+  ];
+  for (const p of candidates) {
+    try {
+      const b64 = readFileSync(p).toString("base64");
+      cachedFontCss = `
+        @font-face {
+          font-family: "GeistEmbed";
+          src: url("data:font/woff;charset=utf-8;base64,${b64}") format("woff");
+          font-weight: 100 900;
+          font-style: normal;
+        }
+      `;
+      return cachedFontCss;
+    } catch {
+      /* try next */
+    }
+  }
+  // Fallback name — still better than silent tofu if host has fonts
+  cachedFontCss = "";
+  return cachedFontCss;
+}
+
 export async function renderOgPng(input: OgInput): Promise<Buffer> {
   const title = (input.title || "Untitled").slice(0, 120);
   const subtitle = (input.subtitle || "").slice(0, 160);
@@ -35,10 +68,25 @@ export async function renderOgPng(input: OgInput): Promise<Buffer> {
     subtitle,
     brand,
     accent,
-    watermark,
+    // Footer brand only when paid; free uses diagonal bitmap after render
+    showFooterBrand: !watermark,
   });
 
-  return sharp(Buffer.from(svg)).png().toBuffer();
+  let png: Buffer = Buffer.from(
+    await sharp(Buffer.from(svg)).png().toBuffer()
+  );
+
+  if (watermark) {
+    png = Buffer.from(
+      await applyDiagonalBitmapWatermark(
+        png,
+        `MADE WITH ${brand.toUpperCase().replace(/[^A-Z0-9]+/g, " ")}`.trim(),
+        { light: true, alpha: 95 }
+      )
+    );
+  }
+
+  return png;
 }
 
 function layoutSvg(opts: {
@@ -47,11 +95,16 @@ function layoutSvg(opts: {
   subtitle: string;
   brand: string;
   accent: string;
-  watermark: boolean;
+  showFooterBrand: boolean;
 }): string {
-  const { template, title, subtitle, brand, accent, watermark } = opts;
+  const { template, title, subtitle, brand, accent, showFooterBrand } = opts;
   const titleLines = wrapText(title, template === "quote" ? 28 : 22);
   const subLines = wrapText(subtitle, 48);
+  const fontCss = fontFaceCss();
+  const fontFamily = fontCss
+    ? "GeistEmbed, Arial, Helvetica, sans-serif"
+    : "Arial, Helvetica, sans-serif";
+  const ff = escapeXml(fontFamily);
 
   const bg =
     template === "launch"
@@ -67,26 +120,26 @@ function layoutSvg(opts: {
   const titleXml = titleLines
     .map(
       (line, i) =>
-        `<text x="72" y="${titleY + i * (titleSize + 10)}" font-size="${titleSize}" font-weight="700" font-family="Georgia, 'Times New Roman', serif" fill="${fg}">${escapeXml(line)}</text>`
+        `<text x="72" y="${titleY + i * (titleSize + 10)}" font-size="${titleSize}" font-weight="700" font-family="${ff}" fill="${fg}">${escapeXml(line)}</text>`
     )
     .join("");
   const subXml = subLines
     .map(
       (line, i) =>
-        `<text x="72" y="${titleY + titleLines.length * (titleSize + 10) + 36 + i * 28}" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="${muted}">${escapeXml(line)}</text>`
+        `<text x="72" y="${titleY + titleLines.length * (titleSize + 10) + 36 + i * 28}" font-size="22" font-family="${ff}" fill="${muted}">${escapeXml(line)}</text>`
     )
     .join("");
 
   const badge =
     template === "product"
-      ? `<rect x="72" y="72" width="140" height="36" rx="8" fill="${accent}"/><text x="92" y="96" font-size="16" font-weight="700" font-family="Arial" fill="#fff">PRODUCT</text>`
+      ? `<rect x="72" y="72" width="140" height="36" rx="8" fill="${accent}"/><text x="92" y="96" font-size="16" font-weight="700" font-family="${ff}" fill="#fff">PRODUCT</text>`
       : template === "launch"
-        ? `<rect x="72" y="72" width="120" height="36" rx="8" fill="${accent}"/><text x="88" y="96" font-size="16" font-weight="700" font-family="Arial" fill="#0f172a">LAUNCH</text>`
-        : `<circle cx="90" cy="90" r="14" fill="${accent}"/><text x="118" y="96" font-size="18" font-weight="600" font-family="Arial" fill="${muted}">${escapeXml(brand)}</text>`;
+        ? `<rect x="72" y="72" width="120" height="36" rx="8" fill="${accent}"/><text x="88" y="96" font-size="16" font-weight="700" font-family="${ff}" fill="#0f172a">LAUNCH</text>`
+        : `<circle cx="90" cy="90" r="14" fill="${accent}"/><text x="118" y="96" font-size="18" font-weight="600" font-family="${ff}" fill="${muted}">${escapeXml(brand)}</text>`;
 
-  const footer = watermark
-    ? `<text x="${W / 2}" y="${H - 28}" text-anchor="middle" font-size="16" font-family="Arial" fill="rgba(148,163,184,0.85)">Made with ${escapeXml(brand)} — free OG image</text>`
-    : `<text x="72" y="${H - 36}" font-size="18" font-family="Arial" fill="${muted}">${escapeXml(brand)}</text>`;
+  const footer = showFooterBrand
+    ? `<text x="72" y="${H - 36}" font-size="18" font-family="${ff}" fill="${muted}">${escapeXml(brand)}</text>`
+    : "";
 
   const decor =
     template === "blog"
@@ -95,9 +148,10 @@ function layoutSvg(opts: {
         ? `<circle cx="${W - 80}" cy="80" r="160" fill="${accent}" opacity="0.2"/><circle cx="${W - 40}" cy="${H - 40}" r="120" fill="${accent}" opacity="0.12"/>`
         : template === "launch"
           ? `<rect x="0" y="${H - 12}" width="${W}" height="12" fill="${accent}"/>`
-          : `<text x="72" y="170" font-size="96" font-family="Georgia" fill="${accent}" opacity="0.35">“</text>`;
+          : `<text x="72" y="170" font-size="96" font-family="${ff}" fill="${accent}" opacity="0.35">"</text>`;
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs><style type="text/css"><![CDATA[${fontCss}]]></style></defs>
     <rect width="100%" height="100%" fill="${bg}"/>
     ${decor}
     ${badge}

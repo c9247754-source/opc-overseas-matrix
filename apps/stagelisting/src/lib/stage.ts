@@ -1,4 +1,8 @@
 import sharp from "sharp";
+import {
+  applyDiagonalBitmapWatermark,
+  makeBitmapLabel,
+} from "@/lib/bitmap-wm";
 
 export type StageStyle =
   | "modern"
@@ -51,32 +55,15 @@ export function stylePrompt(style: StageStyle): string {
   );
 }
 
-/** Diagonal watermark tile for unpaid exports */
+/** Diagonal bitmap watermark — no SVG fonts (Vercel Linux safe). */
 export async function applyWatermark(
   png: Buffer,
   brand: string
 ): Promise<Buffer> {
-  const meta = await sharp(png).metadata();
-  const w = meta.width || 1200;
-  const h = meta.height || 800;
-  const tile = 280;
-  const text = `Made with ${brand}`;
-  const svg = Buffer.from(`
-    <svg width="${tile}" height="${tile}" xmlns="http://www.w3.org/2000/svg">
-      <text x="20" y="${tile / 2}" font-size="18" font-family="Arial,sans-serif"
-        fill="rgba(255,255,255,0.55)" transform="rotate(-28 ${tile / 2} ${tile / 2})">${escapeXml(text)}</text>
-    </svg>
-  `);
-  const tilePng = await sharp(svg).png().toBuffer();
-  const cols = Math.ceil(w / tile) + 1;
-  const rows = Math.ceil(h / tile) + 1;
-  const composites: { input: Buffer; left: number; top: number }[] = [];
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      composites.push({ input: tilePng, left: x * tile, top: y * tile });
-    }
-  }
-  return sharp(png).composite(composites).png().toBuffer();
+  const phrase = `MADE WITH ${brand
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")}`.trim();
+  return applyDiagonalBitmapWatermark(png, phrase);
 }
 
 /**
@@ -92,8 +79,6 @@ export async function stageRoom(
   const replicateToken = process.env.REPLICATE_API_TOKEN;
   const prompt = stylePrompt(style);
 
-  // No AI key → local preview still ships (watermarked freemium works).
-  // Add FAL_KEY or REPLICATE_API_TOKEN for photoreal MLS-quality staging.
   if (provider === "mock" || (!falKey && !replicateToken)) {
     return mockStage(imageDataUrl, style);
   }
@@ -210,7 +195,6 @@ async function stageWithReplicate(
   return fetchImageBuffer(url);
 }
 
-/** Local furniture-overlay preview when no AI key — still ships UI + Creem path. */
 async function mockStage(
   imageDataUrl: string,
   style: StageStyle
@@ -235,16 +219,26 @@ async function mockStage(
       <ellipse cx="${w * 0.72}" cy="${h * 0.7}" rx="${w * 0.06}" ry="${h * 0.03}" fill="rgba(40,90,50,0.45)"/>
       <rect x="${w * 0.7}" y="${h * 0.42}" width="${w * 0.04}" height="${h * 0.28}" fill="rgba(50,50,50,0.4)"/>
       <circle cx="${w * 0.72}" cy="${h * 0.4}" r="${w * 0.035}" fill="rgba(255,240,200,0.5)"/>
-      <text x="${w / 2}" y="${h * 0.12}" text-anchor="middle" font-size="22" font-family="Arial"
-        fill="rgba(0,0,0,0.45)">Preview staging (${escapeXml(style)}) — add FAL_KEY for photoreal</text>
     </svg>
   `);
 
+  const banner = await makeBitmapLabel(
+    `PREVIEW ${style.toUpperCase()} - ADD FAL KEY`,
+    { scale: 3, r: 30, g: 30, b: 30, a: 180 }
+  );
+  const bMeta = await sharp(banner).metadata();
+  const bw = bMeta.width || 100;
+  const outW = Math.min(w, 1600);
+  const left = Math.max(8, Math.round((outW - bw) / 2));
+
   return sharp(input)
-    .resize({ width: Math.min(w, 1600), withoutEnlargement: true })
+    .resize({ width: outW, withoutEnlargement: true })
     .modulate({ brightness: 1.05, saturation: 0.95 })
     .tint(tint)
-    .composite([{ input: await sharp(furniture).png().toBuffer(), blend: "over" }])
+    .composite([
+      { input: await sharp(furniture).png().toBuffer(), blend: "over" },
+      { input: banner, left, top: 24 },
+    ])
     .png()
     .toBuffer();
 }
@@ -257,12 +251,4 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function escapeXml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

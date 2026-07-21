@@ -30,3 +30,6 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# local watermark test outputs
+tmp-wm-test/
