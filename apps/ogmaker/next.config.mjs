@@ -1,9 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ["sharp"],
+    serverComponentsExternalPackages: ["sharp", "satori"],
     outputFileTracingIncludes: {
-      "/api/process": ["./src/app/fonts/**/*"],
+      "/api/process": ["./src/lib/fonts/**/*", "./src/app/fonts/**/*"],
     },
   },
   webpack: (config) => {

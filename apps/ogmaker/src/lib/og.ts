@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
+import satori from "satori";
 import sharp from "sharp";
 import { applyDiagonalBitmapWatermark } from "@/lib/bitmap-wm";
 
@@ -25,35 +26,54 @@ export const OG_TEMPLATES: { id: OgTemplate; label: string; hint: string }[] =
     { id: "quote", label: "Quote / Thread", hint: "Large pull-quote" },
   ];
 
-let cachedFontCss: string | null = null;
+type FontBuf = { name: string; data: ArrayBuffer; weight: 400 | 700 };
 
-/** Embed Geist so SVG text works on Vercel Linux (no system Arial). */
-function fontFaceCss(): string {
-  if (cachedFontCss) return cachedFontCss;
-  const candidates = [
-    join(process.cwd(), "src/app/fonts/GeistVF.woff"),
-    join(process.cwd(), "apps/ogmaker/src/app/fonts/GeistVF.woff"),
+let cachedFonts: FontBuf[] | null = null;
+
+function loadFontFile(...parts: string[]): ArrayBuffer | null {
+  const bases = [
+    join(process.cwd(), "src/lib/fonts"),
+    join(process.cwd(), "apps/ogmaker/src/lib/fonts"),
   ];
-  for (const p of candidates) {
+  for (const base of bases) {
     try {
-      const b64 = readFileSync(p).toString("base64");
-      cachedFontCss = `
-        @font-face {
-          font-family: "GeistEmbed";
-          src: url("data:font/woff;charset=utf-8;base64,${b64}") format("woff");
-          font-weight: 100 900;
-          font-style: normal;
-        }
-      `;
-      return cachedFontCss;
+      const buf = readFileSync(join(base, ...parts));
+      return buf.buffer.slice(
+        buf.byteOffset,
+        buf.byteOffset + buf.byteLength
+      ) as ArrayBuffer;
     } catch {
       /* try next */
     }
   }
-  // Fallback name — still better than silent tofu if host has fonts
-  cachedFontCss = "";
-  return cachedFontCss;
+  return null;
 }
+
+/** Inter (Latin) + Noto Sans SC (中文) — satori turns glyphs into paths (Vercel-safe). */
+function getFonts(): FontBuf[] {
+  if (cachedFonts) return cachedFonts;
+  const interReg = loadFontFile("Inter-Regular.woff");
+  const interBold = loadFontFile("Inter-Bold.woff");
+  const noto = loadFontFile("NotoSansSC-Regular.woff");
+  if (!interReg || !interBold) {
+    throw new Error(
+      "Missing Inter fonts in src/lib/fonts — redeploy with font files."
+    );
+  }
+  const fonts: FontBuf[] = [
+    { name: "Inter", data: interReg, weight: 400 },
+    { name: "Inter", data: interBold, weight: 700 },
+  ];
+  if (noto) {
+    // Same file for both weights so Chinese never tofu
+    fonts.push({ name: "NotoSansSC", data: noto, weight: 400 });
+    fonts.push({ name: "NotoSansSC", data: noto, weight: 700 });
+  }
+  cachedFonts = fonts;
+  return fonts;
+}
+
+const FONT_STACK = "Inter, NotoSansSC";
 
 export async function renderOgPng(input: OgInput): Promise<Buffer> {
   const title = (input.title || "Untitled").slice(0, 120);
@@ -61,27 +81,207 @@ export async function renderOgPng(input: OgInput): Promise<Buffer> {
   const brand = (input.brand || "OgMaker").slice(0, 40);
   const accent = sanitizeHex(input.accent || "#0ea5e9");
   const watermark = Boolean(input.watermark);
+  const template = input.template || "blog";
 
-  const svg = layoutSvg({
-    template: input.template || "blog",
-    title,
-    subtitle,
-    brand,
-    accent,
-    // Footer brand only when paid; free uses diagonal bitmap after render
-    showFooterBrand: !watermark,
-  });
+  const bg =
+    template === "launch"
+      ? "#0f172a"
+      : template === "quote"
+        ? "#fafafa"
+        : "#0b1220";
+  const fg = template === "quote" ? "#0f172a" : "#f8fafc";
+  const muted = template === "quote" ? "#64748b" : "#94a3b8";
+  const titleSize = template === "quote" ? 52 : 48;
 
-  let png: Buffer = Buffer.from(
-    await sharp(Buffer.from(svg)).png().toBuffer()
+  const badgeLabel =
+    template === "product" ? "PRODUCT" : template === "launch" ? "LAUNCH" : null;
+
+  const svg = await satori(
+    {
+      type: "div",
+      props: {
+        style: {
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          backgroundColor: bg,
+          padding: "56px 64px",
+          position: "relative",
+          overflow: "hidden",
+        },
+        children: [
+          // decor
+          ...(template === "blog"
+            ? [
+                {
+                  type: "div",
+                  props: {
+                    style: {
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      width: 220,
+                      height: H,
+                      backgroundColor: accent,
+                      opacity: 0.18,
+                    },
+                  },
+                },
+              ]
+            : []),
+          ...(template === "launch"
+            ? [
+                {
+                  type: "div",
+                  props: {
+                    style: {
+                      position: "absolute",
+                      left: 0,
+                      bottom: 0,
+                      width: W,
+                      height: 12,
+                      backgroundColor: accent,
+                    },
+                  },
+                },
+              ]
+            : []),
+          {
+            type: "div",
+            props: {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                gap: 20,
+                maxWidth: 920,
+              },
+              children: [
+                badgeLabel
+                  ? {
+                      type: "div",
+                      props: {
+                        style: {
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: template === "product" ? 140 : 120,
+                          height: 36,
+                          borderRadius: 8,
+                          backgroundColor: accent,
+                          color: template === "launch" ? "#0f172a" : "#ffffff",
+                          fontSize: 16,
+                          fontWeight: 700,
+                          fontFamily: FONT_STACK,
+                        },
+                        children: badgeLabel,
+                      },
+                    }
+                  : {
+                      type: "div",
+                      props: {
+                        style: {
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                        },
+                        children: [
+                          {
+                            type: "div",
+                            props: {
+                              style: {
+                                width: 14,
+                                height: 14,
+                                borderRadius: 7,
+                                backgroundColor: accent,
+                              },
+                            },
+                          },
+                          {
+                            type: "div",
+                            props: {
+                              style: {
+                                fontSize: 18,
+                                fontWeight: 600,
+                                color: muted,
+                                fontFamily: FONT_STACK,
+                              },
+                              children: brand,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                {
+                  type: "div",
+                  props: {
+                    style: {
+                      fontSize: titleSize,
+                      fontWeight: 700,
+                      color: fg,
+                      lineHeight: 1.15,
+                      fontFamily: FONT_STACK,
+                      display: "flex",
+                      flexWrap: "wrap",
+                    },
+                    children: title,
+                  },
+                },
+                subtitle
+                  ? {
+                      type: "div",
+                      props: {
+                        style: {
+                          fontSize: 22,
+                          fontWeight: 400,
+                          color: muted,
+                          lineHeight: 1.4,
+                          fontFamily: FONT_STACK,
+                          display: "flex",
+                          flexWrap: "wrap",
+                        },
+                        children: subtitle,
+                      },
+                    }
+                  : null,
+              ].filter(Boolean),
+            },
+          },
+          !watermark
+            ? {
+                type: "div",
+                props: {
+                  style: {
+                    fontSize: 18,
+                    fontWeight: 400,
+                    color: muted,
+                    fontFamily: FONT_STACK,
+                  },
+                  children: brand,
+                },
+              }
+            : { type: "div", props: { style: { height: 18 }, children: "" } },
+        ],
+      },
+      // satori accepts a custom element tree; ReactNode typing is too strict here
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+    {
+      width: W,
+      height: H,
+      fonts: getFonts(),
+    }
   );
+
+  let png: Buffer = Buffer.from(await sharp(Buffer.from(svg)).png().toBuffer());
 
   if (watermark) {
     png = Buffer.from(
       await applyDiagonalBitmapWatermark(
         png,
         `MADE WITH ${brand.toUpperCase().replace(/[^A-Z0-9]+/g, " ")}`.trim(),
-        { light: true, alpha: 95 }
+        { light: template !== "quote", alpha: 95 }
       )
     );
   }
@@ -89,104 +289,6 @@ export async function renderOgPng(input: OgInput): Promise<Buffer> {
   return png;
 }
 
-function layoutSvg(opts: {
-  template: OgTemplate;
-  title: string;
-  subtitle: string;
-  brand: string;
-  accent: string;
-  showFooterBrand: boolean;
-}): string {
-  const { template, title, subtitle, brand, accent, showFooterBrand } = opts;
-  const titleLines = wrapText(title, template === "quote" ? 28 : 22);
-  const subLines = wrapText(subtitle, 48);
-  const fontCss = fontFaceCss();
-  const fontFamily = fontCss
-    ? "GeistEmbed, Arial, Helvetica, sans-serif"
-    : "Arial, Helvetica, sans-serif";
-  const ff = escapeXml(fontFamily);
-
-  const bg =
-    template === "launch"
-      ? `#0f172a`
-      : template === "quote"
-        ? `#fafafa`
-        : `#0b1220`;
-  const fg = template === "quote" ? `#0f172a` : `#f8fafc`;
-  const muted = template === "quote" ? `#64748b` : `#94a3b8`;
-
-  const titleY = template === "quote" ? 220 : 200;
-  const titleSize = template === "quote" ? 52 : 48;
-  const titleXml = titleLines
-    .map(
-      (line, i) =>
-        `<text x="72" y="${titleY + i * (titleSize + 10)}" font-size="${titleSize}" font-weight="700" font-family="${ff}" fill="${fg}">${escapeXml(line)}</text>`
-    )
-    .join("");
-  const subXml = subLines
-    .map(
-      (line, i) =>
-        `<text x="72" y="${titleY + titleLines.length * (titleSize + 10) + 36 + i * 28}" font-size="22" font-family="${ff}" fill="${muted}">${escapeXml(line)}</text>`
-    )
-    .join("");
-
-  const badge =
-    template === "product"
-      ? `<rect x="72" y="72" width="140" height="36" rx="8" fill="${accent}"/><text x="92" y="96" font-size="16" font-weight="700" font-family="${ff}" fill="#fff">PRODUCT</text>`
-      : template === "launch"
-        ? `<rect x="72" y="72" width="120" height="36" rx="8" fill="${accent}"/><text x="88" y="96" font-size="16" font-weight="700" font-family="${ff}" fill="#0f172a">LAUNCH</text>`
-        : `<circle cx="90" cy="90" r="14" fill="${accent}"/><text x="118" y="96" font-size="18" font-weight="600" font-family="${ff}" fill="${muted}">${escapeXml(brand)}</text>`;
-
-  const footer = showFooterBrand
-    ? `<text x="72" y="${H - 36}" font-size="18" font-family="${ff}" fill="${muted}">${escapeXml(brand)}</text>`
-    : "";
-
-  const decor =
-    template === "blog"
-      ? `<rect x="${W - 220}" y="0" width="220" height="${H}" fill="${accent}" opacity="0.18"/>`
-      : template === "product"
-        ? `<circle cx="${W - 80}" cy="80" r="160" fill="${accent}" opacity="0.2"/><circle cx="${W - 40}" cy="${H - 40}" r="120" fill="${accent}" opacity="0.12"/>`
-        : template === "launch"
-          ? `<rect x="0" y="${H - 12}" width="${W}" height="12" fill="${accent}"/>`
-          : `<text x="72" y="170" font-size="96" font-family="${ff}" fill="${accent}" opacity="0.35">"</text>`;
-
-  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <defs><style type="text/css"><![CDATA[${fontCss}]]></style></defs>
-    <rect width="100%" height="100%" fill="${bg}"/>
-    ${decor}
-    ${badge}
-    ${titleXml}
-    ${subXml}
-    ${footer}
-  </svg>`;
-}
-
-function wrapText(text: string, maxChars: number): string[] {
-  if (!text) return [];
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (next.length > maxChars && cur) {
-      lines.push(cur);
-      cur = w;
-    } else {
-      cur = next;
-    }
-  }
-  if (cur) lines.push(cur);
-  return lines.slice(0, 4);
-}
-
 function sanitizeHex(c: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(c) ? c : "#0ea5e9";
-}
-
-function escapeXml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
